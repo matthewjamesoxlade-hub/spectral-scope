@@ -1,0 +1,761 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1,viewport-fit=cover"><meta name="apple-mobile-web-app-capable" content="yes"><meta name="apple-mobile-web-app-status-bar-style" content="black-translucent"><meta name="theme-color" content="#070a0a"></head><body>
+<title>Spectral Scope</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Major+Mono+Display&family=Martian+Mono:wght@300;400;600&display=swap">
+<style>
+/* Layout: one full-bleed viewfinder; instrument HUD pinned top and bottom like a handheld EMF scanner */
+:root{
+  --void:#070a0a;
+  --phos:#c4ecdf;
+  --phos-dim:#6f8f86;
+  --panel:rgba(6,11,11,.66);
+  --line:rgba(196,236,223,.22);
+  --warn:#ffb347;
+  --hot:#ff4a36;
+  --led-g:#5dff9b;
+  --led-y:#e8ff5a;
+  --f-display:"Major Mono Display", ui-monospace, "SF Mono", Menlo, monospace;
+  --f-mono:"Martian Mono", ui-monospace, "SF Mono", Menlo, monospace;
+  color-scheme:dark;
+}
+[hidden]{display:none!important}
+html,body{height:100%}
+body{margin:0;background:var(--void);color:var(--phos);font-family:var(--f-mono);overflow:hidden;overscroll-behavior:none;-webkit-user-select:none;user-select:none;-webkit-tap-highlight-color:transparent}
+#app{position:fixed;inset:0;overflow:hidden;background:var(--void)}
+#view{position:absolute;inset:0;width:100%;height:100%;display:block;touch-action:none;cursor:grab}
+#view:active{cursor:grabbing}
+#cam{position:absolute;left:0;top:0;width:2px;height:2px;opacity:0;pointer-events:none}
+
+.hud{position:absolute;inset:0;pointer-events:none;display:flex;flex-direction:column;justify-content:space-between;
+  padding:calc(env(safe-area-inset-top,0px) + 12px) 16px calc(env(safe-area-inset-bottom,0px) + 16px)}
+.top{display:grid;gap:6px}
+.top-row{display:flex;justify-content:space-between;align-items:center;gap:12px}
+.brand{font-family:var(--f-display);font-size:1.05rem;letter-spacing:.02em;text-transform:lowercase;text-shadow:0 0 12px rgba(196,236,223,.35)}
+.status{display:flex;align-items:center;gap:8px;font-size:.62rem;letter-spacing:.16em;text-transform:uppercase;color:var(--phos)}
+.rec{width:7px;height:7px;border-radius:50%;background:var(--hot);box-shadow:0 0 8px var(--hot);animation:blink 1.2s steps(2,end) infinite}
+#tape{display:block;width:min(100%,520px);height:34px;margin:2px auto 0;border-bottom:1px solid var(--line)}
+
+.dock{display:grid;gap:16px;justify-items:center}
+.emf{width:min(100%,420px);box-sizing:border-box;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:10px 12px;display:grid;gap:7px;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+.emf-head{display:flex;justify-content:space-between;align-items:baseline;font-size:.62rem;letter-spacing:.16em;text-transform:uppercase;color:var(--phos-dim)}
+#mg{text-transform:none;font-size:.95rem;letter-spacing:.04em;color:var(--phos);font-variant-numeric:tabular-nums;font-weight:600}
+.leds,.emf-scale{display:grid;grid-template-columns:repeat(5,1fr);gap:6px}
+.led{height:10px;border-radius:2px;background:rgba(196,236,223,.08);transition:background .08s,box-shadow .08s}
+.led.on:nth-child(1),.led.on:nth-child(2){background:var(--led-g);box-shadow:0 0 10px var(--led-g)}
+.led.on:nth-child(3){background:var(--led-y);box-shadow:0 0 10px var(--led-y)}
+.led.on:nth-child(4){background:var(--warn);box-shadow:0 0 10px var(--warn)}
+.led.on:nth-child(5){background:var(--hot);box-shadow:0 0 12px var(--hot)}
+.emf-scale span{font-size:.55rem;color:var(--phos-dim);text-align:center;font-variant-numeric:tabular-nums}
+
+.controls{display:flex;align-items:center;gap:40px}
+.controls button{pointer-events:auto}
+.icon-btn{width:48px;height:48px;border-radius:50%;background:var(--panel);border:1px solid var(--line);color:var(--phos);display:grid;place-items:center;padding:0;cursor:pointer;-webkit-backdrop-filter:blur(6px);backdrop-filter:blur(6px)}
+.icon-btn svg{width:22px;height:22px}
+.shutter{width:72px;height:72px;border-radius:50%;border:3px solid var(--phos);background:transparent;padding:0;position:relative;cursor:pointer;box-shadow:0 0 18px rgba(196,236,223,.25)}
+.shutter::after{content:"";position:absolute;inset:6px;border-radius:50%;background:var(--phos);opacity:.92;transition:transform .12s}
+.shutter:active::after{transform:scale(.86)}
+button:focus-visible{outline:2px solid var(--warn);outline-offset:3px}
+
+.banner{position:absolute;left:50%;top:30%;transform:translateX(-50%);font-size:.72rem;font-weight:600;letter-spacing:.28em;text-transform:uppercase;padding:9px 14px;border:1px solid var(--line);background:var(--panel);color:var(--phos);white-space:nowrap;animation:flick .5s steps(6,end)}
+.banner.hot{color:var(--hot);border-color:var(--hot);background:rgba(50,4,0,.6);text-shadow:0 0 10px var(--hot)}
+.hint{position:absolute;left:50%;top:62%;transform:translateX(-50%);font-size:.66rem;letter-spacing:.12em;text-transform:uppercase;color:var(--phos);background:var(--panel);border:1px solid var(--line);padding:8px 12px;border-radius:999px;white-space:nowrap}
+#flash{position:absolute;inset:0;background:#fff;opacity:0;pointer-events:none}
+#flash.go{animation:flash .45s ease-out}
+
+.sheet{position:absolute;inset:0;display:flex;align-items:flex-end;justify-content:center;overflow-y:auto;box-sizing:border-box;
+  padding:calc(env(safe-area-inset-top,0px) + 24px) 16px calc(env(safe-area-inset-bottom,0px) + 20px);
+  background:linear-gradient(to top, rgba(4,7,7,.96) 45%, rgba(4,7,7,.5));pointer-events:auto}
+.sheet-inner{width:100%;max-width:30rem;display:grid;gap:18px}
+.eyebrow{font-size:.62rem;letter-spacing:.22em;text-transform:uppercase;color:var(--phos-dim)}
+.wordmark{margin:0;font-family:var(--f-display);font-weight:400;font-size:clamp(2.3rem,11vw,3.4rem);line-height:.95;text-wrap:balance;text-shadow:0 0 22px rgba(196,236,223,.4)}
+.lede{margin:0;font-size:.8rem;line-height:1.7;font-weight:300;max-width:34ch;color:var(--phos)}
+.warn{margin:0;font-size:.7rem;line-height:1.6;color:var(--hot);letter-spacing:.02em}
+.err{margin:0;font-size:.72rem;line-height:1.6;color:var(--warn);border:1px solid rgba(255,179,71,.4);border-radius:8px;padding:10px 12px}
+.btns{display:grid;gap:10px}
+.btn{font-family:var(--f-mono);font-size:.8rem;font-weight:600;letter-spacing:.06em;border-radius:8px;padding:16px;cursor:pointer;border:1px solid var(--line);background:transparent;color:var(--phos);text-align:center}
+.btn.primary{background:var(--phos);color:var(--void);border-color:var(--phos)}
+.fine{margin:0;font-size:.6rem;line-height:1.6;color:var(--phos-dim);letter-spacing:.04em}
+.photo-inner{max-width:26rem;align-self:center}
+#shot{display:block;width:100%;max-height:68vh;object-fit:contain;border:1px solid var(--line);border-radius:6px;-webkit-touch-callout:default;-webkit-user-select:auto;user-select:auto}
+
+@keyframes blink{50%{opacity:.15}}
+@keyframes flick{0%{opacity:0}30%{opacity:1}45%{opacity:.2}60%{opacity:1}75%{opacity:.4}100%{opacity:1}}
+@keyframes flash{0%{opacity:.85}100%{opacity:0}}
+@media (prefers-reduced-motion: reduce){.rec,.banner{animation:none}#flash.go{animation:none}}
+</style>
+
+<div id="app">
+  <canvas id="view" aria-label="Scanner viewfinder"></canvas>
+  <video id="cam" playsinline muted autoplay></video>
+
+  <div class="hud">
+    <div class="top">
+      <div class="top-row">
+        <div class="brand">spectral scope</div>
+        <div class="status"><span class="rec"></span><span id="modeLabel">Standby</span></div>
+      </div>
+      <canvas id="tape" aria-hidden="true"></canvas>
+    </div>
+
+    <div class="dock" id="dock" hidden>
+      <div class="emf" aria-label="EMF meter">
+        <div class="emf-head"><span>EMF field</span><span id="mg">0.2 mG</span></div>
+        <div class="leds"><span class="led"></span><span class="led"></span><span class="led"></span><span class="led"></span><span class="led"></span></div>
+        <div class="emf-scale"><span>0.5</span><span>1.5</span><span>5</span><span>10</span><span>20</span></div>
+      </div>
+      <div class="controls">
+        <button id="soundBtn" class="icon-btn" aria-label="Mute sound" aria-pressed="true">
+          <svg id="icoOn" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M15.5 9a4 4 0 0 1 0 6"/><path d="M18 6.5a7.5 7.5 0 0 1 0 11"/></svg>
+          <svg id="icoOff" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" hidden><path d="M4 9.5h3.5L12 5.5v13l-4.5-4H4z"/><path d="M16 9.5l5 5M21 9.5l-5 5"/></svg>
+        </button>
+        <button id="shutter" class="shutter" aria-label="Capture photo"></button>
+        <button id="rescanBtn" class="icon-btn" aria-label="Re-scan the room">
+          <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"><path d="M20 12a8 8 0 1 1-2.4-5.7"/><path d="M20 4.5v4h-4"/><circle cx="12" cy="12" r="1.6"/></svg>
+        </button>
+      </div>
+    </div>
+  </div>
+
+  <div id="banner" class="banner" hidden></div>
+  <div id="hint" class="hint" hidden>Drag to look around</div>
+  <div id="flash"></div>
+
+  <div id="intro" class="sheet">
+    <div class="sheet-inner">
+      <div class="eyebrow">Hotel room sweep</div>
+      <h1 class="wordmark">spectral scope</h1>
+      <p class="lede">Sweep the room with your camera. Residual energy shows up as drifting apparitions and shadow figures. Hold one in the crosshair to close in on it.</p>
+      <p class="warn">Some entities vent a thermal discharge when approached. Stand back.</p>
+      <p id="camErr" class="err" hidden>Camera access isn't available in this view. Try the demo room, or record a quick clip of your room with Scan a room video.</p>
+      <div class="btns">
+        <button id="startCam" class="btn primary">Start camera scan</button>
+        <button id="startDemo" class="btn">Explore the demo room</button>
+        <button id="startVideo" class="btn">Scan a room video</button>
+      </div>
+      <p class="fine">Turn sound on for whispers and EMF crackle. Just for fun: nothing here detects anything real.</p>
+    </div>
+  </div>
+
+  <div id="photo" class="sheet" hidden>
+    <div class="sheet-inner photo-inner">
+      <div class="eyebrow">Entity capture</div>
+      <img id="shot" alt="Captured scanner frame">
+      <p class="fine">Press and hold the photo to save or share it.</p>
+      <button id="closePhoto" class="btn primary">Back to scanning</button>
+    </div>
+  </div>
+
+  <input type="file" id="vidInput" accept="video/*" hidden>
+</div>
+
+<script>
+(() => {
+'use strict';
+const $ = id => document.getElementById(id);
+const cv = $('view'), ctx = cv.getContext('2d');
+const tape = $('tape'), tctx = tape.getContext('2d');
+const cam = $('cam');
+const leds = [...document.querySelectorAll('.led')];
+const mgEl = $('mg');
+
+let W = 0, H = 0, DPR = 1, fovV = 60, fovH = 40, vignette = null;
+const S = {
+  src: null, running: false, t: 0,
+  yaw: 0, pitch: 0, sensYaw: 0, sensPitch: 0, dragYaw: 0, dragPitch: 0,
+  sensors: false, firstSensor: true,
+  thermal: 0, thermalMax: 3.4, emf: 0, sound: true, lock: null, dry: 0
+};
+
+const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
+const norm = a => ((a % 360) + 360) % 360;
+function angDiff(a, b){ let d = (a - b) % 360; if (d > 180) d -= 360; if (d < -180) d += 360; return d; }
+function hash(i){ const s = Math.sin(i * 127.1 + 311.7) * 43758.5453; return s - Math.floor(s); }
+function n1(x){ const i = Math.floor(x), f = x - i, u = f * f * (3 - 2 * f); return hash(i) + (hash(i + 1) - hash(i)) * u; }
+function gauss(){ return (Math.random() + Math.random() + Math.random() - 1.5) / 1.5; }
+
+/* ---------- sprites ---------- */
+function sprite(r, g, b, size = 64){
+  const c = document.createElement('canvas'); c.width = c.height = size;
+  const x = c.getContext('2d');
+  const gr = x.createRadialGradient(size/2, size/2, 0, size/2, size/2, size/2);
+  gr.addColorStop(0, `rgba(${r},${g},${b},1)`);
+  gr.addColorStop(.35, `rgba(${r},${g},${b},.55)`);
+  gr.addColorStop(.7, `rgba(${r},${g},${b},.14)`);
+  gr.addColorStop(1, `rgba(${r},${g},${b},0)`);
+  x.fillStyle = gr; x.fillRect(0, 0, size, size);
+  return c;
+}
+const SPR = {
+  mist: sprite(214, 240, 236), cold: sprite(120, 170, 255), shade: sprite(6, 5, 10), eye: sprite(255, 236, 214, 32),
+  heat: [sprite(255, 255, 225), sprite(255, 224, 80), sprite(255, 136, 28), sprite(236, 36, 18), sprite(120, 8, 60)]
+};
+
+/* grain + scanline patterns */
+const grainC = document.createElement('canvas'); grainC.width = grainC.height = 160;
+(() => { const g = grainC.getContext('2d'), im = g.createImageData(160, 160);
+  for (let i = 0; i < im.data.length; i += 4){ const v = Math.random() * 255; im.data[i] = im.data[i+1] = im.data[i+2] = v; im.data[i+3] = 255; }
+  g.putImageData(im, 0, 0); })();
+const grainPat = ctx.createPattern(grainC, 'repeat');
+const scanC = document.createElement('canvas'); scanC.width = 2; scanC.height = 3;
+(() => { const g = scanC.getContext('2d'); g.fillStyle = 'rgba(0,0,0,1)'; g.fillRect(0, 0, 2, 1); })();
+const scanPat = ctx.createPattern(scanC, 'repeat');
+
+/* ---------- demo hotel room panorama (10 px per degree, horizon at y=600) ---------- */
+const PPD = 10; let PANO = null;
+function buildPano(){
+  const c = document.createElement('canvas'); c.width = 3600; c.height = 1200;
+  const g = c.getContext('2d');
+  const Y = p => 600 - p * PPD, X = y => y * PPD;
+  let gr = g.createLinearGradient(0, 0, 0, 1200);
+  gr.addColorStop(0, '#0c1011'); gr.addColorStop(.45, '#1b2122'); gr.addColorStop(.65, '#161b1b'); gr.addColorStop(1, '#0a0b0b');
+  g.fillStyle = gr; g.fillRect(0, 0, 3600, 1200);
+  // wallpaper stripes
+  g.globalAlpha = .045; g.fillStyle = '#a9d8cc';
+  for (let x = 0; x < 3600; x += 28) g.fillRect(x, Y(32), 2, Y(-22) - Y(32));
+  g.globalAlpha = 1;
+  // ceiling + crown
+  g.fillStyle = '#0a0d0e'; g.fillRect(0, 0, 3600, Y(32));
+  g.fillStyle = '#252c2c'; g.fillRect(0, Y(32), 3600, 6);
+  // floor, skirting, carpet
+  const fy = Y(-22);
+  g.fillStyle = '#120f0d'; g.fillRect(0, fy, 3600, 1200 - fy);
+  g.globalAlpha = .07;
+  for (let x = 0; x < 3600; x += 40){ g.fillStyle = (x / 40) % 2 ? '#3a2a22' : '#050404'; g.fillRect(x, fy, 20, 1200 - fy); }
+  g.globalAlpha = 1;
+  g.fillStyle = '#272423'; g.fillRect(0, fy - 14, 3600, 14);
+
+  // bed (yaw 10-55)
+  g.fillStyle = '#211c19'; g.fillRect(X(10), Y(9), X(55) - X(10), fy - Y(9));
+  g.fillStyle = '#2b2521'; for (let i = 0; i < 6; i++) g.fillRect(X(11) + i * 75, Y(8), 60, Y(-3) - Y(8));
+  g.fillStyle = '#3a3e3d'; g.beginPath(); g.moveTo(X(8), Y(-4)); g.lineTo(X(57), Y(-4)); g.lineTo(X(70), Y(-50)); g.lineTo(X(-5), Y(-50)); g.closePath(); g.fill();
+  g.fillStyle = '#4a4f4d'; g.beginPath(); g.moveTo(X(8), Y(-10)); g.lineTo(X(57), Y(-10)); g.lineTo(X(64), Y(-26)); g.lineTo(X(1), Y(-26)); g.closePath(); g.fill();
+  g.fillStyle = '#5a5f5c';
+  [[14, 30], [34, 51]].forEach(([a, b]) => { g.beginPath(); g.roundRect ? g.roundRect(X(a), Y(-1), X(b) - X(a), Y(-7) - Y(-1), 30) : g.rect(X(a), Y(-1), X(b) - X(a), Y(-7) - Y(-1)); g.fill(); });
+  // art above bed
+  g.fillStyle = '#2f2a24'; g.fillRect(X(20), Y(24), X(45) - X(20), Y(12) - Y(24));
+  g.fillStyle = '#141a1c'; g.fillRect(X(21), Y(23), X(44) - X(21), Y(13) - Y(23));
+  g.fillStyle = '#23302f'; g.beginPath(); g.moveTo(X(21), Y(15)); g.quadraticCurveTo(X(30), Y(22), X(44), Y(16)); g.lineTo(X(44), Y(13)); g.lineTo(X(21), Y(13)); g.fill();
+  // nightstand + lamp (yaw 60-72)
+  g.fillStyle = '#231d18'; g.fillRect(X(60), Y(-8), X(72) - X(60), fy - Y(-8));
+  g.fillStyle = '#16120f'; g.fillRect(X(61), Y(-13), X(71) - X(61), 4);
+  g.fillStyle = '#3a2f24'; g.fillRect(X(65.5), Y(-2), 20, Y(-8) - Y(-2));
+  g.fillStyle = '#d9b27a'; g.beginPath(); g.moveTo(X(63), Y(-2)); g.lineTo(X(70), Y(-2)); g.lineTo(X(68.5), Y(5)); g.lineTo(X(64.5), Y(5)); g.closePath(); g.fill();
+  g.globalCompositeOperation = 'lighter';
+  gr = g.createRadialGradient(X(66.5), Y(1), 0, X(66.5), Y(1), 380);
+  gr.addColorStop(0, 'rgba(255,190,110,.55)'); gr.addColorStop(.3, 'rgba(255,160,80,.16)'); gr.addColorStop(1, 'rgba(255,140,60,0)');
+  g.fillStyle = gr; g.fillRect(X(66.5) - 400, Y(1) - 400, 800, 800);
+  g.globalCompositeOperation = 'source-over';
+  // window with curtains (yaw 105-160)
+  g.fillStyle = '#1c2224'; g.fillRect(X(103), Y(26), X(162) - X(103), Y(-12) - Y(26));
+  gr = g.createLinearGradient(0, Y(24), 0, Y(-10)); gr.addColorStop(0, '#0b1422'); gr.addColorStop(1, '#16223a');
+  g.fillStyle = gr; g.fillRect(X(106), Y(24), X(159) - X(106), Y(-10) - Y(24));
+  for (let i = 0; i < 60; i++){ g.fillStyle = Math.random() < .5 ? 'rgba(255,210,140,.55)' : 'rgba(170,200,255,.4)'; g.fillRect(X(118) + Math.random() * 300, Y(-2) + Math.random() * 70, 3, 3); }
+  const curtain = (a, b) => { for (let x = X(a); x < X(b); x += 18){ const v = 22 + (Math.sin(x * .09) + 1) * 9; g.fillStyle = `rgb(${v + 12},${v + 8},${v + 4})`; g.fillRect(x, Y(29), 18, fy - Y(29)); } };
+  curtain(100, 124); curtain(139, 165);
+  g.fillStyle = '#2a2f30'; g.fillRect(X(99), Y(29), X(166) - X(99), 8);
+  // desk, tv, chair (yaw 188-228)
+  g.fillStyle = '#0b0c0d'; g.fillRect(X(195), Y(15), X(221) - X(195), Y(2) - Y(15));
+  g.fillStyle = 'rgba(120,160,170,.08)'; g.beginPath(); g.moveTo(X(197), Y(14)); g.lineTo(X(205), Y(14)); g.lineTo(X(199), Y(3)); g.lineTo(X(197), Y(3)); g.fill();
+  g.fillStyle = '#241e19'; g.fillRect(X(188), Y(-6), X(228) - X(188), 16);
+  g.fillStyle = '#1b1612'; g.fillRect(X(189), Y(-6) + 16, 14, fy - Y(-6) - 16); g.fillRect(X(227) - 14, Y(-6) + 16, 14, fy - Y(-6) - 16);
+  g.fillStyle = '#141111'; g.fillRect(X(203), Y(-2), X(214) - X(203), Y(-12) - Y(-2)); g.fillRect(X(201), Y(-12), X(216) - X(201), 22); g.fillRect(X(203), Y(-12) + 22, 10, 120); g.fillRect(X(214) - 10, Y(-12) + 22, 10, 120);
+  // door (yaw 255-280) + light leak + evacuation plan
+  g.fillStyle = '#1a1714'; g.fillRect(X(253), Y(22), X(282) - X(253), fy - Y(22));
+  g.fillStyle = '#2b2622'; g.fillRect(X(255), Y(20), X(280) - X(255), fy - Y(20));
+  g.fillStyle = '#231f1b'; g.fillRect(X(257.5), Y(17), X(277.5) - X(257.5), Y(3) - Y(17)); g.fillRect(X(257.5), Y(0), X(277.5) - X(257.5), Y(-18) - Y(0));
+  g.fillStyle = '#8c7c63'; g.fillRect(X(276), Y(-3), 22, 8);
+  g.fillStyle = '#050505'; g.beginPath(); g.arc(X(267.5), Y(10), 5, 0, 7); g.fill();
+  g.globalCompositeOperation = 'lighter';
+  gr = g.createLinearGradient(0, fy - 10, 0, fy + 60); gr.addColorStop(0, 'rgba(255,200,130,.6)'); gr.addColorStop(1, 'rgba(255,190,120,0)');
+  g.fillStyle = gr; g.fillRect(X(255), fy - 8, X(280) - X(255), 70);
+  g.globalCompositeOperation = 'source-over';
+  g.fillStyle = '#6d7471'; g.fillRect(X(284), Y(9), 70, 90); g.fillStyle = '#4d2a26'; g.fillRect(X(284) + 6, Y(9) + 8, 58, 10);
+  g.fillStyle = '#39403e'; for (let i = 0; i < 5; i++) g.fillRect(X(284) + 8, Y(9) + 28 + i * 11, 30 + Math.random() * 24, 4);
+  // wardrobe + mirror (yaw 300-336)
+  g.fillStyle = '#1d1915'; g.fillRect(X(300), Y(27), X(336) - X(300), fy - Y(27));
+  g.fillStyle = '#262019'; g.fillRect(X(302), Y(25), X(317.5) - X(302), fy - Y(25) - 10); g.fillRect(X(318.5), Y(25), X(334) - X(318.5), fy - Y(25) - 10);
+  gr = g.createLinearGradient(X(320), 0, X(332), 0); gr.addColorStop(0, '#20282a'); gr.addColorStop(.5, '#3a4648'); gr.addColorStop(1, '#1e2527');
+  g.fillStyle = gr; g.fillRect(X(320.5), Y(22), X(332) - X(320.5), Y(-17) - Y(22));
+  g.fillStyle = '#6a5b48'; g.fillRect(X(317) - 6, Y(2), 4, 40); g.fillRect(X(319) + 2, Y(2), 4, 40);
+  // lighting falloff away from the lamp
+  gr = g.createLinearGradient(0, 0, 3600, 0);
+  gr.addColorStop(0, 'rgba(0,0,0,.22)'); gr.addColorStop(670 / 3600, 'rgba(0,0,0,0)'); gr.addColorStop(2470 / 3600, 'rgba(0,0,0,.62)'); gr.addColorStop(1, 'rgba(0,0,0,.22)');
+  g.fillStyle = gr; g.fillRect(0, 0, 3600, 1200);
+  return c;
+}
+
+/* ---------- entities ---------- */
+const TYPES = {
+  mist: { cls: 'RESIDUAL APPARITION', tag: 'CLASS II', height: 1.7 },
+  shade: { cls: 'SHADOW FIGURE', tag: 'CLASS IV', height: 1.9 }
+};
+function mistPart(){
+  const r = Math.random(); let ax, ay, s;
+  if (r < .12){ ax = gauss() * .06; ay = -.38 + gauss() * .06; s = .06 + Math.random() * .05; }
+  else if (r < .52){ ay = -.28 + Math.random() * .33; const hw = .15 - (ay + .28) * .1; ax = gauss() * hw; s = .07 + Math.random() * .08; }
+  else if (r < .62){ const side = Math.random() < .5 ? -1 : 1, u = Math.random(); ax = side * (.17 + u * .03) + gauss() * .02; ay = -.24 + u * .3; s = .04 + Math.random() * .04; }
+  else { const u = Math.random(); ay = .05 + u * .47; const hw = .13 * (1 - u) + .02; ax = gauss() * hw; s = .06 + Math.random() * .08 * (1 - u * .5); }
+  return { ax, ay, s, ph: Math.random() * 6.28, f: .5 + Math.random() * 1.2, spd: .08 + Math.random() * .15, a: .35 + Math.random() * .65 };
+}
+function shadePart(){
+  const r = Math.random(); let ax, ay, s;
+  if (r < .13){ ax = gauss() * .055; ay = -.40 + gauss() * .055; s = .05 + Math.random() * .04; }
+  else if (r < .55){ ay = -.31 + Math.random() * .4; const hw = ay < -.25 ? .17 : .15 - (ay + .25) * .12; ax = gauss() * hw; s = .06 + Math.random() * .06; }
+  else { const u = Math.random(); ay = .09 + u * .42; const hw = .11 * (1 - u * .6); ax = gauss() * hw; s = .05 + Math.random() * .06; }
+  return { ax, ay, s, ph: Math.random() * 6.28, f: .6 + Math.random() * 1.5, spd: .05 + Math.random() * .1, a: .4 + Math.random() * .6, edge: Math.abs(ax) > .08 };
+}
+function build(e, type){
+  e.type = type; Object.assign(e, TYPES[type]);
+  e.id = 'E-' + String(100 + (Math.random() * 900 | 0));
+  e.parts = [];
+  const n = type === 'shade' ? 120 : 95;
+  for (let i = 0; i < n; i++) e.parts.push(type === 'shade' ? shadePart() : mistPart());
+}
+function makeEntity(type, yaw){
+  const e = { yaw: norm(yaw), pitch: -6 + Math.random() * 6, prox: 0, state: 'in', fade: 0, scatter: 0, seed: Math.random() * 1000, plume: [], ventT: 0, emitAcc: 0, wait: 0, side: 1 };
+  build(e, type); return e;
+}
+let ents = [];
+function spawnAll(){
+  ents = [makeEntity('mist', S.yaw + 28), makeEntity('shade', S.yaw - 115), makeEntity('mist', S.yaw + 165)];
+  ents[1].fade = 0; ents[2].state = 'hidden'; ents[2].wait = 4;
+}
+function relocate(e){
+  e.state = 'hidden'; e.wait = 1.5 + Math.random() * 3;
+  e.yaw = norm(S.yaw + (Math.random() < .5 ? -1 : 1) * (70 + Math.random() * 100));
+  e.pitch = -6 + Math.random() * 7; e.prox = 0; e.scatter = 0; e.fade = 0; e.ventT = 0;
+  build(e, Math.random() < .55 ? 'mist' : 'shade');
+}
+function screenOf(e){
+  const dx = angDiff(e.yaw, S.yaw), dy = e.pitch - S.pitch;
+  const dist = 3.2 - e.prox * 1.9;
+  const h = (2 * Math.atan(e.height / 2 / dist) * 180 / Math.PI) / fovV * H;
+  let x = W / 2 + dx / fovH * W; const y = H / 2 - dy / fovV * H;
+  if (e.state === 'venting' && e.ventT < .6) x += Math.sin(S.t * 70) * h * .012;
+  return { x, y, h, dx, dy, dist };
+}
+
+function trigger(e){
+  const force = S.dry >= 3;
+  if (force || Math.random() < .25){
+    S.dry = 0; e.state = 'venting'; e.ventT = 0; e.side = Math.random() < .5 ? -1 : 1;
+    S.thermal = S.thermalMax;
+    for (let i = 0; i < 45; i++) e.plume.push(plumeP(e, 1.8));
+    fart(); banner('Thermal discharge', true);
+  } else {
+    S.dry++; e.state = 'out';
+    whoosh(); banner(['Entity dispersed', 'Signal lost', 'Entity retreated'][Math.random() * 3 | 0]);
+  }
+}
+function plumeP(e, boost = 1){
+  return { x: e.side * .07 + gauss() * .03, y: .12 + gauss() * .03,
+    vx: e.side * (.22 + Math.random() * .35) * boost, vy: -(.03 + Math.random() * .22) * (boost > 1 ? .6 : 1) + (boost > 1 ? gauss() * .15 : 0),
+    s: .05 + Math.random() * .05, life: 0, max: 1.3 + Math.random() * 1.3 };
+}
+function updatePlume(e, dt){
+  if (e.state === 'venting' && e.ventT < 1.7){ e.emitAcc += 85 * dt; while (e.emitAcc > 1){ e.emitAcc--; e.plume.push(plumeP(e)); } }
+  for (const p of e.plume){ p.life += dt; p.x += p.vx * dt; p.y += p.vy * dt; p.vx *= Math.pow(.35, dt); p.vy = p.vy * Math.pow(.5, dt) - .09 * dt; p.s += .17 * dt; }
+  if (e.plume.length) e.plume = e.plume.filter(p => p.life < p.max);
+}
+
+/* ---------- audio ---------- */
+let AC = null, master = null, amb = null, noiseBuf = null;
+function initAudio(){
+  if (AC){ if (AC.state === 'suspended') AC.resume(); return; }
+  const C = window.AudioContext || window.webkitAudioContext; if (!C) return;
+  AC = new C(); master = AC.createGain(); master.gain.value = S.sound ? 1 : 0; master.connect(AC.destination);
+  noiseBuf = AC.createBuffer(1, AC.sampleRate * 2, AC.sampleRate);
+  const d = noiseBuf.getChannelData(0); for (let i = 0; i < d.length; i++) d[i] = Math.random() * 2 - 1;
+  amb = AC.createGain(); amb.gain.value = 0; amb.gain.linearRampToValueAtTime(1, AC.currentTime + 3); amb.connect(master);
+  const lp = AC.createBiquadFilter(); lp.type = 'lowpass'; lp.frequency.value = 160; lp.connect(amb);
+  [[48, 'sawtooth', .035], [48.6, 'sawtooth', .035], [72.3, 'sine', .02]].forEach(([f, type, v]) => {
+    const o = AC.createOscillator(); o.type = type; o.frequency.value = f; const g = AC.createGain(); g.gain.value = v; o.connect(g); g.connect(lp); o.start(); });
+  const n = AC.createBufferSource(); n.buffer = noiseBuf; n.loop = true;
+  const bp = AC.createBiquadFilter(); bp.type = 'bandpass'; bp.frequency.value = 500; bp.Q.value = .6;
+  const ng = AC.createGain(); ng.gain.value = .012; n.connect(bp); bp.connect(ng); ng.connect(amb); n.start();
+  const lfo = AC.createOscillator(); lfo.frequency.value = .07; const lg = AC.createGain(); lg.gain.value = .008; lfo.connect(lg); lg.connect(ng.gain); lfo.start();
+  scheduleWhisper();
+}
+function scheduleWhisper(){ setTimeout(() => { if (S.running) whisper(); scheduleWhisper(); }, 7000 + Math.random() * 14000); }
+function whisper(){
+  if (!AC) return;
+  const t = AC.currentTime + .05, dur = .8 + Math.random() * 1.4;
+  const src = AC.createBufferSource(); src.buffer = noiseBuf;
+  const f1 = AC.createBiquadFilter(); f1.type = 'bandpass'; f1.Q.value = 8;
+  f1.frequency.setValueAtTime(700 + Math.random() * 300, t); f1.frequency.linearRampToValueAtTime(1100 + Math.random() * 500, t + dur * .5); f1.frequency.linearRampToValueAtTime(620, t + dur);
+  const f2 = AC.createBiquadFilter(); f2.type = 'bandpass'; f2.Q.value = 10;
+  f2.frequency.setValueAtTime(2400, t); f2.frequency.linearRampToValueAtTime(1900 + Math.random() * 400, t + dur);
+  const g = AC.createGain(); g.gain.setValueAtTime(0, t);
+  const syl = 2 + (Math.random() * 4 | 0);
+  for (let i = 0; i < syl; i++){ const st = t + i * dur / syl; g.gain.linearRampToValueAtTime(1.5, st + dur / syl * .3); g.gain.linearRampToValueAtTime(.25, st + dur / syl * .9); }
+  g.gain.linearRampToValueAtTime(0, t + dur + .1);
+  src.connect(f1); src.connect(f2); f1.connect(g); f2.connect(g);
+  if (AC.createStereoPanner){ const p = AC.createStereoPanner(); p.pan.value = Math.random() * 1.6 - .8; g.connect(p); p.connect(amb); } else g.connect(amb);
+  src.start(t, Math.random()); src.stop(t + dur + .2);
+}
+function fart(){
+  if (!AC) return;
+  const t = AC.currentTime + .02, dur = .55 + Math.random() * 1.0, N = 128;
+  const base = 68 + Math.random() * 50;
+  const fc = new Float32Array(N), gc = new Float32Array(N);
+  let walk = 0;
+  for (let i = 0; i < N; i++){
+    const u = i / (N - 1); walk += (Math.random() - .5) * .3; walk *= .88;
+    fc[i] = Math.max(30, base * (1.25 - .45 * u) * (1 + walk * .45));
+    gc[i] = Math.min(1, u * 14) * Math.pow(1 - u, .55) * (.6 + .4 * Math.random());
+  }
+  const o = AC.createOscillator(); o.type = 'sawtooth'; o.frequency.setValueCurveAtTime(fc, t, dur);
+  const am = AC.createGain(); am.gain.value = .5;
+  const lfo = AC.createOscillator(); lfo.type = 'square';
+  lfo.frequency.setValueAtTime(18 + Math.random() * 14, t); lfo.frequency.linearRampToValueAtTime(9 + Math.random() * 8, t + dur);
+  const lfoG = AC.createGain(); lfoG.gain.value = .5; lfo.connect(lfoG); lfoG.connect(am.gain);
+  const nz = AC.createBufferSource(); nz.buffer = noiseBuf;
+  const nb = AC.createBiquadFilter(); nb.type = 'bandpass'; nb.frequency.value = 180; nb.Q.value = 1.2;
+  const ng = AC.createGain(); ng.gain.value = .6; nz.connect(nb); nb.connect(ng); ng.connect(am);
+  const lp = AC.createBiquadFilter(); lp.type = 'lowpass'; lp.Q.value = 4;
+  lp.frequency.setValueAtTime(950, t); lp.frequency.linearRampToValueAtTime(360, t + dur);
+  const env = AC.createGain(); env.gain.value = 0; env.gain.setValueCurveAtTime(gc, t, dur);
+  const out = AC.createGain(); out.gain.value = 1.1;
+  o.connect(am); am.connect(lp); lp.connect(env); env.connect(out); out.connect(master);
+  o.start(t); lfo.start(t); nz.start(t, Math.random());
+  o.stop(t + dur + .05); lfo.stop(t + dur + .05); nz.stop(t + dur + .05);
+}
+function whoosh(){
+  if (!AC) return;
+  const t = AC.currentTime + .02, src = AC.createBufferSource(); src.buffer = noiseBuf;
+  const bp = AC.createBiquadFilter(); bp.type = 'bandpass'; bp.Q.value = 1.5;
+  bp.frequency.setValueAtTime(1800, t); bp.frequency.exponentialRampToValueAtTime(220, t + .9);
+  const g = AC.createGain(); g.gain.setValueAtTime(0, t); g.gain.linearRampToValueAtTime(.45, t + .15); g.gain.linearRampToValueAtTime(0, t + .95);
+  src.connect(bp); bp.connect(g); g.connect(master); src.start(t, Math.random()); src.stop(t + 1);
+}
+function click(level = .25, hp = 2200){
+  if (!AC) return;
+  const t = AC.currentTime, src = AC.createBufferSource(); src.buffer = noiseBuf;
+  const f = AC.createBiquadFilter(); f.type = 'highpass'; f.frequency.value = hp;
+  const g = AC.createGain(); g.gain.setValueAtTime(level, t); g.gain.exponentialRampToValueAtTime(.001, t + .012);
+  src.connect(f); f.connect(g); g.connect(master); src.start(t, Math.random()); src.stop(t + .02);
+}
+
+/* ---------- orientation + drag ---------- */
+function onOri(ev){
+  if (ev.alpha == null || ev.beta == null) return;
+  const r = Math.PI / 180, a = ev.alpha * r, b = ev.beta * r, g = (ev.gamma || 0) * r;
+  const ca = Math.cos(a), sa = Math.sin(a), cb = Math.cos(b), sb = Math.sin(b), cg = Math.cos(g), sg = Math.sin(g);
+  const vx = -ca * sg - sa * sb * cg, vy = -sa * sg + ca * sb * cg, vz = -cb * cg;
+  const heading = Math.atan2(vx, vy) / r, pitch = Math.asin(clamp(vz, -1, 1)) / r;
+  if (S.firstSensor){ S.firstSensor = false; S.dragYaw = S.yaw - heading; S.dragPitch = 0; }
+  S.sensYaw = heading; S.sensPitch = pitch; S.sensors = true; $('hint').hidden = true;
+}
+function requestOrientation(){
+  try {
+    if (typeof DeviceOrientationEvent !== 'undefined' && typeof DeviceOrientationEvent.requestPermission === 'function'){
+      return DeviceOrientationEvent.requestPermission().then(res => { if (res === 'granted') addEventListener('deviceorientation', onOri); }).catch(() => {});
+    }
+    addEventListener('deviceorientation', onOri);
+  } catch (e) {}
+  return Promise.resolve();
+}
+let drag = null;
+cv.addEventListener('pointerdown', e => { drag = { x: e.clientX, y: e.clientY }; try { cv.setPointerCapture(e.pointerId); } catch (_) {} });
+cv.addEventListener('pointermove', e => {
+  if (!drag) return;
+  const dx = e.clientX - drag.x, dy = e.clientY - drag.y; drag.x = e.clientX; drag.y = e.clientY;
+  S.dragYaw -= dx / W * fovH;
+  if (!S.sensors) S.dragPitch = clamp(S.dragPitch + dy / H * fovV, -24, 24);
+  if (Math.abs(dx) + Math.abs(dy) > 4) $('hint').hidden = true;
+});
+['pointerup', 'pointercancel'].forEach(t => cv.addEventListener(t, () => drag = null));
+addEventListener('keydown', e => {
+  const k = { ArrowLeft: [-4, 0], ArrowRight: [4, 0], ArrowUp: [0, 3], ArrowDown: [0, -3] }[e.key];
+  if (!k || !S.running) return; S.dragYaw += k[0]; if (!S.sensors) S.dragPitch = clamp(S.dragPitch + k[1], -24, 24); e.preventDefault();
+});
+
+/* ---------- HUD bits ---------- */
+let bannerT = null;
+function banner(text, hot = false){
+  const b = $('banner'); b.textContent = text; b.classList.toggle('hot', hot);
+  b.hidden = true; void b.offsetWidth; b.hidden = false;
+  clearTimeout(bannerT); bannerT = setTimeout(() => b.hidden = true, 2600);
+}
+function resize(){
+  DPR = Math.min(window.devicePixelRatio || 1, 2); W = innerWidth; H = innerHeight;
+  cv.width = W * DPR | 0; cv.height = H * DPR | 0;
+  fovV = H >= W ? 62 : 48; fovH = fovV * W / H;
+  const r = tape.getBoundingClientRect(); tape.width = Math.max(1, r.width * DPR | 0); tape.height = Math.max(1, r.height * DPR | 0);
+  vignette = ctx.createRadialGradient(W / 2, H / 2, Math.min(W, H) * .3, W / 2, H / 2, Math.hypot(W, H) * .6);
+  vignette.addColorStop(0, 'rgba(0,0,0,0)'); vignette.addColorStop(1, 'rgba(0,0,0,.72)');
+}
+addEventListener('resize', resize);
+
+/* ---------- update ---------- */
+function update(dt){
+  S.t += dt;
+  if (!S.running) S.dragYaw += dt * 3.5;
+  const tY = norm(S.sensYaw + S.dragYaw), tP = clamp(S.sensPitch + S.dragPitch, -40, 40);
+  const k = Math.min(1, dt * 14);
+  S.yaw = norm(S.yaw + angDiff(tY, S.yaw) * k); S.pitch += (tP - S.pitch) * k;
+
+  let lock = null, best = 1e9;
+  for (const e of ents){
+    switch (e.state){
+      case 'hidden': e.wait -= dt; if (e.wait <= 0){ e.state = 'in'; e.fade = 0; } break;
+      case 'in': e.fade = Math.min(1, e.fade + dt / 1.6); if (e.fade >= 1) e.state = 'idle'; break;
+      case 'venting': e.ventT += dt; if (e.ventT > 3.6) e.state = 'out'; break;
+      case 'out': e.fade -= dt / 1.3; e.scatter += dt * .8; if (e.fade <= 0 && !e.plume.length) relocate(e); break;
+    }
+    updatePlume(e, dt);
+    if (S.running && (e.state === 'idle' || e.state === 'in')){
+      const sc = screenOf(e), nd = Math.hypot(sc.dx / fovH, sc.dy / fovV * .8);
+      if (nd < .16 && e.fade > .5 && nd < best){ best = nd; lock = e; }
+    }
+  }
+  for (const e of ents){
+    if (e === lock && e.state === 'idle'){ e.prox = Math.min(1, e.prox + dt / 3.2); if (e.prox >= 1) trigger(e); }
+    else if (e.state === 'idle' || e.state === 'in') e.prox = Math.max(0, e.prox - dt / 4);
+  }
+  S.lock = lock || ents.find(e => e.state === 'venting' && Math.abs(angDiff(e.yaw, S.yaw)) < fovH * .7) || null;
+  S.thermal = Math.max(0, S.thermal - dt);
+
+  let sig = 0;
+  for (const e of ents){
+    if (e.state === 'hidden') continue;
+    const a = Math.abs(angDiff(e.yaw, S.yaw));
+    let s = Math.max(0, 1 - a / 75) * .42 * Math.max(0, e.fade) + e.prox * .55;
+    if (e.state === 'venting') s = 1;
+    sig = Math.max(sig, s);
+  }
+  const jit = (n1(S.t * 9) - .5) * .12 + (Math.random() - .5) * .06 * sig;
+  S.emf += (clamp(sig + jit, 0, 1) - S.emf) * Math.min(1, dt * 8);
+  const th = [.08, .25, .45, .65, .85];
+  leds.forEach((l, i) => l.classList.toggle('on', S.emf > th[i]));
+  mgEl.textContent = (0.2 + Math.pow(S.emf, 2.2) * 23.8).toFixed(1) + ' mG';
+  if (S.running && AC && S.sound && Math.random() < S.emf * S.emf * dt * 40) click(.12 + S.emf * .3);
+}
+
+/* ---------- render ---------- */
+function drawBg(){
+  if ((S.src === 'cam' || S.src === 'video') && cam.readyState >= 2 && cam.videoWidth){
+    const vw = cam.videoWidth, vh = cam.videoHeight, s = Math.max(W / vw, H / vh), dw = vw * s, dh = vh * s;
+    ctx.drawImage(cam, (W - dw) / 2, (H - dh) / 2, dw, dh); return;
+  }
+  if (S.src === 'cam' || S.src === 'video'){ ctx.fillStyle = '#070a0a'; ctx.fillRect(0, 0, W, H); return; }
+  if (!PANO) PANO = buildPano();
+  const pw = 3600, sw = fovH * PPD, sh = fovV * PPD;
+  const sx = norm(S.yaw - fovH / 2) * PPD;
+  const sy = clamp(600 - (S.pitch + fovV / 2) * PPD, 0, 1200 - sh);
+  if (sx + sw <= pw) ctx.drawImage(PANO, sx, sy, sw, sh, 0, 0, W, H);
+  else { const w1 = pw - sx, s1 = w1 / sw * W;
+    ctx.drawImage(PANO, sx, sy, w1, sh, 0, 0, s1 + 1, H);
+    ctx.drawImage(PANO, 0, sy, sw - w1, sh, s1, 0, W - s1, H); }
+}
+function thermalK(){
+  if (S.thermal <= 0) return 0;
+  return clamp(Math.min((S.thermalMax - S.thermal) / .25, S.thermal / .8), 0, 1);
+}
+function grade(thK){
+  ctx.globalCompositeOperation = 'multiply'; ctx.globalAlpha = 1; ctx.fillStyle = '#b4c2bf'; ctx.fillRect(0, 0, W, H);
+  ctx.globalCompositeOperation = 'saturation'; ctx.globalAlpha = .5 + .5 * thK; ctx.fillStyle = '#808080'; ctx.fillRect(0, 0, W, H);
+  ctx.globalCompositeOperation = 'soft-light'; ctx.globalAlpha = .35 * (1 - thK); ctx.fillStyle = '#2f8f86'; ctx.fillRect(0, 0, W, H);
+  if (thK > 0){
+    ctx.globalCompositeOperation = 'multiply'; ctx.globalAlpha = thK * .9; ctx.fillStyle = '#3b2396'; ctx.fillRect(0, 0, W, H);
+    ctx.globalCompositeOperation = 'screen'; ctx.globalAlpha = thK * .25; ctx.fillStyle = '#1a0a40'; ctx.fillRect(0, 0, W, H);
+  }
+  ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+}
+function drawEntity(e, sc, thK){
+  const vis = clamp(e.fade, 0, 1); if (vis <= .01) return;
+  const t = S.t, h = sc.h, flick = .72 + .28 * n1(t * 3 + e.seed);
+  const sc2 = e.scatter;
+  if (e.type === 'mist'){
+    ctx.globalCompositeOperation = 'lighter';
+    const spr = thK > .3 ? SPR.cold : SPR.mist;
+    ctx.globalAlpha = .09 * vis * flick; ctx.drawImage(spr, sc.x - h * .35, sc.y - h * .55, h * .7, h * 1.1);
+    for (const p of e.parts){
+      const u = (t * p.spd + p.ph) % 1;
+      const sway = Math.sin(t * .9 + p.ay * 5 + e.seed) * .045 * Math.max(0, p.ay + .2);
+      const px = p.ax + sway + Math.sin(t * p.f + p.ph) * .018 + (p.ax * 3 + Math.sin(p.ph) * .3) * sc2;
+      const py = p.ay - u * .07 + Math.cos(t * p.f * .8 + p.ph) * .012 + Math.sin(t * .7 + e.seed) * .015 - sc2 * .25 * (1 + Math.cos(p.ph));
+      const size = p.s * (1 + u * .8 + sc2) * h;
+      ctx.globalAlpha = .075 * p.a * Math.sin(u * Math.PI) * vis * flick;
+      ctx.drawImage(spr, sc.x + px * h - size / 2, sc.y + py * h - size / 2, size, size);
+    }
+  } else {
+    ctx.globalCompositeOperation = 'source-over';
+    for (const p of e.parts){
+      const u = (t * p.spd + p.ph) % 1;
+      let px = p.ax + Math.sin(t * p.f + p.ph) * .012 + (p.ax * 3 + Math.sin(p.ph) * .3) * sc2;
+      let py = p.ay - u * .04 + Math.sin(t * .5 + e.seed) * .01 - sc2 * .2 * (1 + Math.cos(p.ph));
+      let a = .2 * p.a * (.4 + .6 * Math.sin(u * Math.PI)) * vis * flick;
+      if (p.edge){ px += (Math.random() - .5) * .03; py += (Math.random() - .5) * .015; a *= .4 + Math.random() * .6; }
+      const size = p.s * (1 + u * .5 + sc2) * h;
+      ctx.globalAlpha = a;
+      ctx.drawImage(SPR.shade, sc.x + px * h - size / 2, sc.y + py * h - size / 2, size, size);
+    }
+    if (n1(t * .6 + e.seed) > .7 && sc2 === 0){
+      ctx.globalCompositeOperation = 'lighter'; ctx.globalAlpha = .55 * vis;
+      const es = h * .03;
+      [-1, 1].forEach(s => ctx.drawImage(SPR.eye, sc.x + s * .024 * h - es / 2, sc.y - .405 * h - es / 2, es, es));
+    }
+  }
+}
+function drawPlume(e, sc){
+  if (!e.plume.length) return;
+  ctx.globalCompositeOperation = 'lighter';
+  for (const p of e.plume){
+    const k = p.life / p.max, i = Math.min(4, (k * 5) | 0), size = p.s * sc.h;
+    ctx.globalAlpha = Math.max(0, 1 - k) * .3 * (k < .06 ? k / .06 : 1);
+    ctx.drawImage(SPR.heat[i], sc.x + p.x * sc.h - size / 2, sc.y + p.y * sc.h - size / 2, size, size);
+  }
+}
+function drawReticle(){
+  const r = Math.min(W, H) * .085, cx = W / 2, cy = H / 2;
+  ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+  ctx.strokeStyle = S.lock ? 'rgba(196,236,223,.9)' : 'rgba(196,236,223,.45)'; ctx.lineWidth = 1;
+  ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.stroke();
+  ctx.beginPath();
+  [[1, 0], [-1, 0], [0, 1], [0, -1]].forEach(([x, y]) => { ctx.moveTo(cx + x * r * .35, cy + y * r * .35); ctx.lineTo(cx + x * r * .75, cy + y * r * .75); });
+  for (let i = 0; i < 24; i++){ const a = i / 24 * Math.PI * 2, l = i % 6 === 0 ? 8 : 4; ctx.moveTo(cx + Math.cos(a) * r, cy + Math.sin(a) * r); ctx.lineTo(cx + Math.cos(a) * (r + l), cy + Math.sin(a) * (r + l)); }
+  ctx.stroke();
+  ctx.fillStyle = 'rgba(196,236,223,.8)'; ctx.fillRect(cx - 1, cy - 1, 2, 2);
+}
+function drawLock(e){
+  const sc = screenOf(e), hot = e.state === 'venting';
+  const bw = sc.h * .46, bh = sc.h * 1.02, x0 = sc.x - bw / 2, y0 = sc.y - bh * .5, L = Math.min(24, bw * .18);
+  const col = hot ? '#ff4a36' : '#c4ecdf';
+  ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = .9; ctx.strokeStyle = col; ctx.lineWidth = 1.5;
+  ctx.beginPath();
+  [[x0, y0, 1, 1], [x0 + bw, y0, -1, 1], [x0, y0 + bh, 1, -1], [x0 + bw, y0 + bh, -1, -1]].forEach(([x, y, sx, sy]) => {
+    ctx.moveTo(x + sx * L, y); ctx.lineTo(x, y); ctx.lineTo(x, y + sy * L); });
+  ctx.stroke();
+  const temp = hot ? 21.4 + Math.min(1, e.ventT / .4) * 46 + Math.sin(S.t * 7) * .6 : 21.4 - e.prox * 13.8 + (n1(S.t * 2 + e.seed) - .5) * .6;
+  const lines = [`${e.tag} · ${e.cls}`, `${e.id}   DIST ${sc.dist.toFixed(1)} m`, `${temp >= 0 ? '+' : ''}${temp.toFixed(1)} °C  ${hot ? 'THERMAL SPIKE' : 'COLD SPOT'}`];
+  const lx = clamp(x0, 12, W - 232), ly = clamp(y0 - 58, 120, H - 260);
+  ctx.fillStyle = 'rgba(6,11,11,.62)'; ctx.fillRect(lx - 6, ly - 13, 226, 62);
+  ctx.fillStyle = col; ctx.textAlign = 'left'; ctx.textBaseline = 'alphabetic';
+  ctx.font = '600 9.5px "Martian Mono", ui-monospace, monospace'; ctx.fillText(lines[0], lx, ly);
+  ctx.font = '400 9.5px "Martian Mono", ui-monospace, monospace'; ctx.fillText(lines[1], lx, ly + 15); ctx.fillText(lines[2], lx, ly + 30);
+  ctx.globalAlpha = .3; ctx.fillRect(lx, ly + 39, 210, 3);
+  ctx.globalAlpha = 1; ctx.fillRect(lx, ly + 39, 210 * (hot ? 1 : e.prox), 3);
+}
+function drawThermalLegend(thK){
+  const x = W - 26, y = H * .3, h = Math.min(170, H * .25);
+  ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = thK;
+  const g = ctx.createLinearGradient(0, y, 0, y + h);
+  g.addColorStop(0, '#fffde0'); g.addColorStop(.25, '#ffe050'); g.addColorStop(.5, '#ff8a1c'); g.addColorStop(.72, '#ec2412'); g.addColorStop(1, '#3b2396');
+  ctx.fillStyle = g; ctx.fillRect(x, y, 8, h);
+  ctx.fillStyle = '#ffd9cf'; ctx.font = '400 9px "Martian Mono", ui-monospace, monospace'; ctx.textAlign = 'right';
+  ctx.fillText('65°', x - 5, y + 8); ctx.fillText('-5°', x - 5, y + h);
+  ctx.textAlign = 'left';
+  const pulse = .5 + .5 * Math.sin(S.t * 10);
+  ctx.globalAlpha = thK * (.25 + .2 * pulse);
+  ctx.strokeStyle = '#ff4a36'; ctx.lineWidth = 10; ctx.strokeRect(5, 5, W - 10, H - 10);
+}
+function render(){
+  ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
+  ctx.globalCompositeOperation = 'source-over'; ctx.globalAlpha = 1;
+  drawBg();
+  const thK = thermalK();
+  grade(thK);
+  const list = [];
+  for (const e of ents){ if (e.state === 'hidden' && !e.plume.length) continue; const sc = screenOf(e); if (sc.x < -sc.h || sc.x > W + sc.h) continue; list.push([e, sc]); }
+  list.sort((a, b) => b[1].dist - a[1].dist);
+  for (const [e, sc] of list){ drawEntity(e, sc, thK); drawPlume(e, sc); }
+  ctx.globalCompositeOperation = 'source-over';
+  ctx.save(); ctx.globalAlpha = .05; ctx.translate(-(Math.random() * 160 | 0), -(Math.random() * 160 | 0)); ctx.fillStyle = grainPat; ctx.fillRect(0, 0, W + 160, H + 160); ctx.restore();
+  ctx.globalAlpha = .12; ctx.fillStyle = scanPat; ctx.fillRect(0, 0, W, H);
+  ctx.globalAlpha = 1; ctx.fillStyle = vignette; ctx.fillRect(0, 0, W, H);
+  if (thK > 0) drawThermalLegend(thK);
+  if (S.running){ drawReticle(); if (S.lock) drawLock(S.lock); }
+  ctx.globalAlpha = 1;
+}
+function drawTape(){
+  const tw = tape.width / DPR, th = tape.height / DPR, span = 120, ppd = tw / span;
+  tctx.setTransform(DPR, 0, 0, DPR, 0, 0); tctx.clearRect(0, 0, tw, th);
+  tctx.strokeStyle = '#c4ecdf'; tctx.fillStyle = '#c4ecdf'; tctx.lineWidth = 1;
+  tctx.font = '400 9px "Martian Mono", ui-monospace, monospace'; tctx.textAlign = 'center';
+  const start = Math.floor((S.yaw - span / 2) / 5) * 5;
+  for (let d = start; d <= S.yaw + span / 2; d += 5){
+    const x = tw / 2 + (d - S.yaw) * ppd, dn = norm(Math.round(d)), major = dn % 30 === 0;
+    tctx.globalAlpha = major ? .8 : .3;
+    tctx.beginPath(); tctx.moveTo(x, th); tctx.lineTo(x, th - (major ? 9 : 4)); tctx.stroke();
+    if (major){ const lab = { 0: 'N', 90: 'E', 180: 'S', 270: 'W' }[dn]; tctx.fillText(lab || String(dn), x, th - 13); }
+  }
+  for (const e of ents){
+    if (e.state === 'hidden') continue;
+    const d = angDiff(e.yaw, S.yaw); if (Math.abs(d) > span / 2) continue;
+    const x = tw / 2 + d * ppd;
+    tctx.globalAlpha = .35 + .65 * clamp(e.fade, 0, 1);
+    tctx.fillStyle = e.state === 'venting' ? '#ff4a36' : '#c4ecdf';
+    tctx.beginPath(); tctx.moveTo(x - 4, 1); tctx.lineTo(x + 4, 1); tctx.lineTo(x, 8); tctx.closePath(); tctx.fill();
+  }
+  tctx.globalAlpha = 1; tctx.fillStyle = '#ffb347'; tctx.fillRect(tw / 2 - .75, th - 16, 1.5, 16);
+}
+
+let last = performance.now();
+function frame(now){
+  const dt = Math.min(.05, Math.max(0, (now - last) / 1000)); last = now;
+  update(dt); render(); drawTape();
+  requestAnimationFrame(frame);
+}
+
+/* ---------- start flows ---------- */
+function begin(src){
+  S.src = src; S.running = true; $('intro').hidden = true; $('dock').hidden = false;
+  $('modeLabel').textContent = { cam: 'Live · camera', demo: 'Demo room', video: 'Room video' }[src];
+  S.dragPitch = 0; spawnAll();
+  try { navigator.wakeLock && navigator.wakeLock.request('screen').catch(() => {}); } catch (e) {}
+  setTimeout(() => { if (!S.sensors) $('hint').hidden = false; }, 1400);
+}
+$('startCam').addEventListener('click', async () => {
+  initAudio();
+  const oriP = requestOrientation();
+  try {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getUserMedia) throw new Error('no camera api');
+    const stream = await navigator.mediaDevices.getUserMedia({ video: { facingMode: { ideal: 'environment' }, width: { ideal: 1280 }, height: { ideal: 720 } }, audio: false });
+    cam.srcObject = stream; cam.muted = true; await cam.play();
+    await oriP; begin('cam');
+  } catch (err) {
+    $('camErr').hidden = false;
+  }
+});
+$('startDemo').addEventListener('click', () => { initAudio(); requestOrientation(); begin('demo'); });
+$('startVideo').addEventListener('click', () => { initAudio(); $('vidInput').click(); });
+$('vidInput').addEventListener('change', e => {
+  const f = e.target.files && e.target.files[0]; if (!f) return;
+  cam.srcObject = null; cam.src = URL.createObjectURL(f); cam.loop = true; cam.muted = true;
+  cam.play().catch(() => {}); begin('video');
+});
+$('soundBtn').addEventListener('click', () => {
+  S.sound = !S.sound; initAudio();
+  if (master) master.gain.setTargetAtTime(S.sound ? 1 : 0, AC.currentTime, .05);
+  $('icoOn').hidden = !S.sound; $('icoOff').hidden = S.sound;
+  $('soundBtn').setAttribute('aria-pressed', String(S.sound));
+  $('soundBtn').setAttribute('aria-label', S.sound ? 'Mute sound' : 'Turn sound on');
+});
+$('rescanBtn').addEventListener('click', () => { if (!S.running) return; spawnAll(); S.thermal = 0; banner('Re-scanning room'); click(.3, 900); });
+$('shutter').addEventListener('click', () => {
+  if (!S.running) return;
+  const c = document.createElement('canvas'); c.width = cv.width; c.height = cv.height;
+  const g = c.getContext('2d'); g.drawImage(cv, 0, 0); g.scale(DPR, DPR);
+  const now = new Date(), pad = n => String(n).padStart(2, '0');
+  const stamp = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())}  ${pad(now.getHours())}:${pad(now.getMinutes())}:${pad(now.getSeconds())}`;
+  const lines = ['SPECTRAL SCOPE · ENTITY CAPTURE', stamp, `EMF ${mgEl.textContent}  ·  ${S.lock ? S.lock.tag + ' ' + S.lock.cls : 'NO LOCK'}`];
+  g.fillStyle = 'rgba(6,11,11,.7)'; g.fillRect(12, H - 74, Math.min(W - 24, 340), 60);
+  g.fillStyle = '#c4ecdf'; g.font = '600 10px "Martian Mono", ui-monospace, monospace'; g.fillText(lines[0], 22, H - 54);
+  g.font = '400 10px "Martian Mono", ui-monospace, monospace'; g.fillText(lines[1], 22, H - 38); g.fillText(lines[2], 22, H - 22);
+  $('shot').src = c.toDataURL('image/jpeg', .9);
+  const fl = $('flash'); fl.classList.remove('go'); void fl.offsetWidth; fl.classList.add('go');
+  click(.5, 600); setTimeout(() => click(.35, 1200), 70);
+  setTimeout(() => { $('photo').hidden = false; }, 260);
+});
+$('closePhoto').addEventListener('click', () => { $('photo').hidden = true; });
+document.addEventListener('visibilitychange', () => { if (!AC) return; document.hidden ? AC.suspend() : AC.resume(); });
+
+resize();
+ents = [makeEntity('mist', 22), makeEntity('shade', -40)];
+ents.forEach(e => { e.state = 'idle'; e.fade = 1; });
+requestAnimationFrame(frame);
+})();
+</script>
+</body></html>
